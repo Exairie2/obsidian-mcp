@@ -260,7 +260,7 @@ async function processVaultBacklinks(
 
             // Apply changes if not dry run
             if (!options.dryRun) {
-              await applyNoteEdits(note.path, edits);
+              await this.applyNoteEdits(note.path, edits);
             }
           }
 
@@ -701,176 +701,43 @@ function handleInsertEdit(lines: string[], elements: MarkdownElement[], edit: Ed
   }
 }
 
-async function applyNoteEdits(filePath: string, edits: EditOperation[], dryRun: boolean = false): Promise<string> {
-  const fullPath = path.join(VAULT_PATH, filePath);
-
-  // Read current file content
-  let content: string;
-  try {
-    content = fs.readFileSync(fullPath, "utf-8");
-  } catch (error) {
-    throw new Error(`Failed to read file ${filePath}: ${error}`);
-  }
-
-  const originalContent = content;
-  let modifiedContent = normalizeLineEndings(content);
-
-  // Parse markdown structure for insert operations
-  const elements = parseMarkdown(modifiedContent);
-  let lines = modifiedContent.split("\n");
-
-  // Apply edits sequentially
-  for (const edit of edits) {
-    // 向后兼容：如果没有mode字段但有oldText和newText，默认为replace模式
-    const mode = edit.mode || (edit.oldText && edit.newText ? "replace" : "insert");
-
-    // 验证编辑操作
-    const validationErrors = validateEditOperation({ ...edit, mode });
-    if (validationErrors.length > 0) {
-      throw new Error(`Invalid edit operation: ${validationErrors.join("; ")}`);
-    }
-
-    if (mode === "insert") {
-      // Handle insert mode
-      try {
-        lines = handleInsertEdit(lines, elements, edit);
-        modifiedContent = lines.join("\n");
-        // Re-parse elements after modification for subsequent edits
-        elements.length = 0;
-        elements.push(...parseMarkdown(modifiedContent));
-      } catch (error) {
-        if (error instanceof InsertError) {
-          throw new Error(`Insert operation failed: ${error.message}`);
-        }
-        throw new Error(`Insert operation failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    } else {
-      // Handle replace mode (original logic)
-      const { oldText, newText } = edit;
-
-      if (!oldText || !newText) {
-        throw new Error("Replace mode requires both oldText and newText");
-      }
-
-      if (oldText === newText) {
-        continue; // Skip if no change
-      }
-
-      // Try exact match first
-      if (modifiedContent.includes(oldText)) {
-        modifiedContent = modifiedContent.replace(oldText, newText);
-        lines = modifiedContent.split("\n");
-        // Re-parse elements after modification
-        elements.length = 0;
-        elements.push(...parseMarkdown(modifiedContent));
-        continue;
-      }
-
-      // Try flexible line-by-line matching
-      const oldLines = oldText.split("\n");
-      const newLines = newText.split("\n");
-      let matchFound = false;
-
-      // Find matching sequence of lines
-      for (let i = 0; i <= lines.length - oldLines.length; i++) {
-        let isMatch = true;
-        const matchedIndentations: string[] = [];
-
-        // Check if lines match (ignoring leading/trailing whitespace)
-        for (let j = 0; j < oldLines.length; j++) {
-          const contentLine = lines[i + j];
-          const oldLine = oldLines[j];
-
-          // Extract indentation from content line
-          const indentMatch = contentLine.match(/^(\s*)/);
-          const indentation = indentMatch ? indentMatch[1] : "";
-          matchedIndentations.push(indentation);
-
-          // Compare trimmed lines
-          if (contentLine.trim() !== oldLine.trim()) {
-            isMatch = false;
-            break;
-          }
-        }
-
-        if (isMatch) {
-          // Replace the matched lines with new lines, preserving indentation
-          const replacementLines = newLines.map((line, index) => {
-            if (index < matchedIndentations.length) {
-              const originalIndent = matchedIndentations[index];
-              const lineWithoutIndent = line.replace(/^\s*/, "");
-              return originalIndent + lineWithoutIndent;
-            }
-            return line;
-          });
-
-          // Replace the lines
-          lines.splice(i, oldLines.length, ...replacementLines);
-          modifiedContent = lines.join("\n");
-          matchFound = true;
-          // Re-parse elements after modification
-          elements.length = 0;
-          elements.push(...parseMarkdown(modifiedContent));
-          break;
-        }
-      }
-
-      if (!matchFound) {
-        throw new Error(`Could not find matching text for edit: "${oldText.substring(0, 50)}..."`);
-      }
-    }
-  }
-
-  if (dryRun) {
-    // Return diff for preview
-    return createUnifiedDiff(originalContent, modifiedContent, filePath);
-  }
-
-  // Write the modified content atomically
-  const tempFile = fullPath + ".tmp";
-  try {
-    fs.writeFileSync(tempFile, modifiedContent, "utf-8");
-    fs.renameSync(tempFile, fullPath);
-  } catch (error) {
-    // Clean up temp file if it exists
-    if (fs.existsSync(tempFile)) {
-      fs.unlinkSync(tempFile);
-    }
-    throw new Error(`Failed to write file ${filePath}: ${error}`);
-  }
-
-  return `File ${filePath} updated successfully`;
-}
-
-
-
 // Configuration loaded
 
 // Validate vault path exists
-if (!fs.existsSync(VAULT_PATH)) {
-  console.error(`[ERROR] Vault path does not exist: ${VAULT_PATH}`);
-  console.error(`[ERROR] Please check your vault path configuration`);
-  console.error(`[ERROR] Current working directory: ${process.cwd()}`);
-}
 
 export class ObsidianMcpServer {
   private server: Server;
   private api: AxiosInstance;
+  private VAULT_PATH: string;
+  private API_TOKEN: string;
+  private API_PORT: string;
+  private API_HOST: string;
+  private API_BASE_URL: string;
+  private TRANSPORT_MODE: string;
+  private HTTP_PORT: Number;
+  private HTTP_HOST: string;
 
   constructor() {
     // Initialize MCP server
     // Obsidian API configuration
-const CONFIG = this.importEnvs();
-console.log(CONFIG);
-// Ensure vault path is absolute
-const VAULT_PATH = path.isAbsolute(CONFIG.vaultPath) ? CONFIG.vaultPath : path.resolve(process.cwd(), CONFIG.vaultPath);
-const API_TOKEN = CONFIG.apiToken;
-const API_PORT = CONFIG.apiPort;
-const API_HOST = CONFIG.apiHost;
-const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
-const TRANSPORT_MODE = CONFIG.transport;
-const HTTP_PORT = parseInt(CONFIG.httpPort);
-const HTTP_HOST = CONFIG.httpHost;
+    const CONFIG = this.importEnvs();
+    console.log(CONFIG);
+    // Ensure vault path is absolute
+    this.VAULT_PATH = path.isAbsolute(CONFIG.vaultPath) ? CONFIG.vaultPath : path.resolve(process.cwd(), CONFIG.vaultPath);
+    this.API_TOKEN = CONFIG.apiToken;
+    this.API_PORT = CONFIG.apiPort;
+    this.API_HOST = CONFIG.apiHost;
+    this.API_BASE_URL = `http://${this.API_HOST}:${this.API_PORT}`;
+    this.TRANSPORT_MODE = CONFIG.transport;
+    this.HTTP_PORT = parseInt(CONFIG.httpPort);
+    this.HTTP_HOST = CONFIG.httpHost;
+
+    if (!fs.existsSync(this.VAULT_PATH)) {
+      console.error(`[ERROR] Vault path does not exist: ${this.VAULT_PATH}`);
+      console.error(`[ERROR] Please check your vault path configuration`);
+      console.error(`[ERROR] Current working directory: ${process.cwd()}`);
+    }
+
     this.server = new Server(
       {
         name: "obsidian-mcp-server",
@@ -886,7 +753,7 @@ const HTTP_HOST = CONFIG.httpHost;
 
     // Initialize Obsidian API client
     this.api = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: this.API_BASE_URL,
       headers: {
         Authorization: `Bearer ${process.env.API_TOKEN}`,
         "Content-Type": "application/json",
@@ -904,6 +771,147 @@ const HTTP_HOST = CONFIG.httpHost;
     //   await this.server.close();
     //   process.exit(0);
     // });
+  }
+
+  async applyNoteEdits(filePath: string, edits: EditOperation[], dryRun: boolean = false): Promise<string> {
+    const fullPath = path.join(this.VAULT_PATH, filePath);
+
+    // Read current file content
+    let content: string;
+    try {
+      content = fs.readFileSync(fullPath, "utf-8");
+    } catch (error) {
+      throw new Error(`Failed to read file ${filePath}: ${error}`);
+    }
+
+    const originalContent = content;
+    let modifiedContent = normalizeLineEndings(content);
+
+    // Parse markdown structure for insert operations
+    const elements = parseMarkdown(modifiedContent);
+    let lines = modifiedContent.split("\n");
+
+    // Apply edits sequentially
+    for (const edit of edits) {
+      // 向后兼容：如果没有mode字段但有oldText和newText，默认为replace模式
+      const mode = edit.mode || (edit.oldText && edit.newText ? "replace" : "insert");
+
+      // 验证编辑操作
+      const validationErrors = validateEditOperation({ ...edit, mode });
+      if (validationErrors.length > 0) {
+        throw new Error(`Invalid edit operation: ${validationErrors.join("; ")}`);
+      }
+
+      if (mode === "insert") {
+        // Handle insert mode
+        try {
+          lines = handleInsertEdit(lines, elements, edit);
+          modifiedContent = lines.join("\n");
+          // Re-parse elements after modification for subsequent edits
+          elements.length = 0;
+          elements.push(...parseMarkdown(modifiedContent));
+        } catch (error) {
+          if (error instanceof InsertError) {
+            throw new Error(`Insert operation failed: ${error.message}`);
+          }
+          throw new Error(`Insert operation failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } else {
+        // Handle replace mode (original logic)
+        const { oldText, newText } = edit;
+
+        if (!oldText || !newText) {
+          throw new Error("Replace mode requires both oldText and newText");
+        }
+
+        if (oldText === newText) {
+          continue; // Skip if no change
+        }
+
+        // Try exact match first
+        if (modifiedContent.includes(oldText)) {
+          modifiedContent = modifiedContent.replace(oldText, newText);
+          lines = modifiedContent.split("\n");
+          // Re-parse elements after modification
+          elements.length = 0;
+          elements.push(...parseMarkdown(modifiedContent));
+          continue;
+        }
+
+        // Try flexible line-by-line matching
+        const oldLines = oldText.split("\n");
+        const newLines = newText.split("\n");
+        let matchFound = false;
+
+        // Find matching sequence of lines
+        for (let i = 0; i <= lines.length - oldLines.length; i++) {
+          let isMatch = true;
+          const matchedIndentations: string[] = [];
+
+          // Check if lines match (ignoring leading/trailing whitespace)
+          for (let j = 0; j < oldLines.length; j++) {
+            const contentLine = lines[i + j];
+            const oldLine = oldLines[j];
+
+            // Extract indentation from content line
+            const indentMatch = contentLine.match(/^(\s*)/);
+            const indentation = indentMatch ? indentMatch[1] : "";
+            matchedIndentations.push(indentation);
+
+            // Compare trimmed lines
+            if (contentLine.trim() !== oldLine.trim()) {
+              isMatch = false;
+              break;
+            }
+          }
+
+          if (isMatch) {
+            // Replace the matched lines with new lines, preserving indentation
+            const replacementLines = newLines.map((line, index) => {
+              if (index < matchedIndentations.length) {
+                const originalIndent = matchedIndentations[index];
+                const lineWithoutIndent = line.replace(/^\s*/, "");
+                return originalIndent + lineWithoutIndent;
+              }
+              return line;
+            });
+
+            // Replace the lines
+            lines.splice(i, oldLines.length, ...replacementLines);
+            modifiedContent = lines.join("\n");
+            matchFound = true;
+            // Re-parse elements after modification
+            elements.length = 0;
+            elements.push(...parseMarkdown(modifiedContent));
+            break;
+          }
+        }
+
+        if (!matchFound) {
+          throw new Error(`Could not find matching text for edit: "${oldText.substring(0, 50)}..."`);
+        }
+      }
+    }
+
+    if (dryRun) {
+      // Return diff for preview
+      return createUnifiedDiff(originalContent, modifiedContent, filePath);
+    }
+
+    // Write the modified content atomically
+    const tempFile = fullPath + ".tmp";
+    try {
+      fs.writeFileSync(tempFile, modifiedContent, "utf-8");
+      fs.renameSync(tempFile, fullPath);
+    } catch (error) {
+      // Clean up temp file if it exists
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+      throw new Error(`Failed to write file ${filePath}: ${error}`);
+    }
+
+    return `File ${filePath} updated successfully`;
   }
 
   private setupResourceHandlers() {
@@ -1496,7 +1504,7 @@ const HTTP_HOST = CONFIG.httpHost;
     // 如果有回退操作，使用文件系统方法
     let filesystemResult = "";
     if (fallbackEdits.length > 0) {
-      filesystemResult = await applyNoteEdits(notePath, fallbackEdits, dryRun);
+      filesystemResult = await this.applyNoteEdits(notePath, fallbackEdits, dryRun);
     }
 
     // 合并结果
@@ -1958,7 +1966,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       console.warn("API request failed, falling back to file system:", error);
 
       // Fallback to file system if API fails
-      const basePath = path.join(VAULT_PATH, folder);
+      const basePath = path.join(this.VAULT_PATH, folder);
       return this.listFilesRecursively(basePath, recursive);
     }
   }
@@ -1999,7 +2007,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       // API failed for folder
       // If API fails for a specific folder, try filesystem fallback for that folder
       try {
-        const basePath = path.join(VAULT_PATH, folderPath);
+        const basePath = path.join(this.VAULT_PATH, folderPath);
         const fallbackFiles = this.listFilesRecursively(basePath, recursive);
         // relativePaths are already calculated correctly in listFilesRecursively
         allFiles.push(...fallbackFiles);
@@ -2032,7 +2040,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
         // If not recursive, skip directories
       } else {
         // Include all file types, not just .md files
-        const relativePath = path.relative(VAULT_PATH, fullPath);
+        const relativePath = path.relative(this.VAULT_PATH, fullPath);
         files.push(relativePath);
       }
     }
@@ -2050,7 +2058,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       console.warn("API request failed, falling back to file system:", error);
 
       // Fallback to file system if API fails
-      const fullPath = path.join(VAULT_PATH, notePath);
+      const fullPath = path.join(this.VAULT_PATH, notePath);
 
       if (fs.existsSync(fullPath)) {
         return fs.readFileSync(fullPath, "utf-8");
@@ -2068,7 +2076,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       console.warn("API request failed, falling back to file system:", error);
 
       // Fallback to file system if API fails
-      const fullPath = path.join(VAULT_PATH, notePath);
+      const fullPath = path.join(this.VAULT_PATH, notePath);
       const dir = path.dirname(fullPath);
 
       if (!fs.existsSync(dir)) {
@@ -2168,7 +2176,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       console.warn("API request failed, falling back to file system:", error);
 
       // Fallback to file system if API fails
-      const fullPath = path.join(VAULT_PATH, notePath);
+      const fullPath = path.join(this.VAULT_PATH, notePath);
 
       if (!fs.existsSync(fullPath)) {
         throw new Error(`Note not found: ${notePath}`);
@@ -2178,7 +2186,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
 
       // Check if parent directory is empty and remove it if it is
       const dir = path.dirname(fullPath);
-      if (dir !== VAULT_PATH) {
+      if (dir !== this.VAULT_PATH) {
         const items = fs.readdirSync(dir);
         if (items.length === 0) {
           fs.rmdirSync(dir);
@@ -2234,8 +2242,8 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       await this.api.delete(`/vault/${encodeURIComponent(sourcePath)}`);
     } catch (error) {
       // Fallback to file system operations
-      const sourceFullPath = path.join(VAULT_PATH, sourcePath);
-      const destFullPath = path.join(VAULT_PATH, destinationPath);
+      const sourceFullPath = path.join(this.VAULT_PATH, sourcePath);
+      const destFullPath = path.join(this.VAULT_PATH, destinationPath);
 
       // Validate source file exists
       if (!fs.existsSync(sourceFullPath)) {
@@ -2262,7 +2270,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
 
       // Clean up empty source directory if needed
       const sourceDir = path.dirname(sourceFullPath);
-      if (sourceDir !== VAULT_PATH) {
+      if (sourceDir !== this.VAULT_PATH) {
         try {
           const items = fs.readdirSync(sourceDir);
           if (items.length === 0) {
@@ -2284,7 +2292,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       console.warn("API request failed, falling back to file system:", error);
 
       // Fallback to file system if API fails
-      const fullPath = path.join(VAULT_PATH, folderPath);
+      const fullPath = path.join(this.VAULT_PATH, folderPath);
 
       if (!fs.existsSync(fullPath)) {
         fs.mkdirSync(fullPath, { recursive: true });
@@ -2300,8 +2308,8 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       console.warn("API request failed, falling back to file system:", error);
 
       // Fallback to file system if API fails
-      const fullPath = path.join(VAULT_PATH, folderPath);
-      const newFullPath = path.join(VAULT_PATH, newPath);
+      const fullPath = path.join(this.VAULT_PATH, folderPath);
+      const newFullPath = path.join(this.VAULT_PATH, newPath);
 
       if (!fs.existsSync(fullPath)) {
         throw new Error(`Folder not found: ${folderPath}`);
@@ -2334,7 +2342,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       console.warn("API request failed, falling back to file system:", error);
 
       // Fallback to file system if API fails
-      const fullPath = path.join(VAULT_PATH, folderPath);
+      const fullPath = path.join(this.VAULT_PATH, folderPath);
 
       if (!fs.existsSync(fullPath)) {
         throw new Error(`Folder not found: ${folderPath}`);
@@ -2383,7 +2391,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
     return config;
   }
   async run() {
-    if (TRANSPORT_MODE === "http") {
+    if (this.TRANSPORT_MODE === "http") {
       await this.startHttpServer();
     } else {
       await this.startStdioServer();
@@ -2465,10 +2473,11 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       }
     });
 
-    httpServer.listen(HTTP_PORT, HTTP_HOST, () => {
-      console.error(`[INFO] Obsidian MCP server running on HTTP ${HTTP_HOST}:${HTTP_PORT}`);
-      console.error(`[INFO] SSE endpoint: http://${HTTP_HOST}:${HTTP_PORT}/sse`);
-      console.error(`[INFO] Messages endpoint: http://${HTTP_HOST}:${HTTP_PORT}/messages`);
-    });
+    // Disable running as standalone unit
+    // httpServer.listen(this.HTTP_PORT, this.HTTP_HOST, () => {
+    //   console.error(`[INFO] Obsidian MCP server running on HTTP ${this.HTTP_HOST}:${this.HTTP_PORT}`);
+    //   console.error(`[INFO] SSE endpoint: http://${this.HTTP_HOST}:${this.HTTP_PORT}/sse`);
+    //   console.error(`[INFO] Messages endpoint: http://${this.HTTP_HOST}:${this.HTTP_PORT}/messages`);
+    // });
   }
 }
