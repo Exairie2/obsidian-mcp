@@ -11,23 +11,6 @@ import { URL } from "url";
 import { createTwoFilesPatch } from "diff";
 
 // Parse command line arguments for NPM usage
-function importEnvs() {
-  const args = process.argv.slice(2);
-
-  // First try environment variables, then CLI args as fallback
-  const config = {
-    vaultPath: process.env.OBSIDIAN_VAULT_PATH || "./vault",
-    apiToken: process.env.OBSIDIAN_API_TOKEN || "",
-    apiPort: process.env.OBSIDIAN_API_PORT || "27123",
-    apiHost: process.env.OBSIDIAN_API_HOST || "127.0.0.1",
-    transport: process.env.OBSIDIAN_TRANSPORT || "stdio",
-    httpPort: process.env.OBSIDIAN_HTTP_PORT || "3000",
-    httpHost: process.env.OBSIDIAN_HTTP_HOST || "127.0.0.1",
-  };
-
-  return config;
-}
-
 // Helper functions for file editing
 function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -859,18 +842,7 @@ async function applyNoteEdits(filePath: string, edits: EditOperation[], dryRun: 
   return `File ${filePath} updated successfully`;
 }
 
-// Obsidian API configuration
-const CONFIG = importEnvs();
-console.log(CONFIG);
-// Ensure vault path is absolute
-const VAULT_PATH = path.isAbsolute(CONFIG.vaultPath) ? CONFIG.vaultPath : path.resolve(process.cwd(), CONFIG.vaultPath);
-const API_TOKEN = CONFIG.apiToken;
-const API_PORT = CONFIG.apiPort;
-const API_HOST = CONFIG.apiHost;
-const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
-const TRANSPORT_MODE = CONFIG.transport;
-const HTTP_PORT = parseInt(CONFIG.httpPort);
-const HTTP_HOST = CONFIG.httpHost;
+
 
 // Configuration loaded
 
@@ -887,6 +859,18 @@ export class ObsidianMcpServer {
 
   constructor() {
     // Initialize MCP server
+    // Obsidian API configuration
+const CONFIG = this.importEnvs();
+console.log(CONFIG);
+// Ensure vault path is absolute
+const VAULT_PATH = path.isAbsolute(CONFIG.vaultPath) ? CONFIG.vaultPath : path.resolve(process.cwd(), CONFIG.vaultPath);
+const API_TOKEN = CONFIG.apiToken;
+const API_PORT = CONFIG.apiPort;
+const API_HOST = CONFIG.apiHost;
+const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
+const TRANSPORT_MODE = CONFIG.transport;
+const HTTP_PORT = parseInt(CONFIG.httpPort);
+const HTTP_HOST = CONFIG.httpHost;
     this.server = new Server(
       {
         name: "obsidian-mcp-server",
@@ -904,7 +888,7 @@ export class ObsidianMcpServer {
     this.api = axios.create({
       baseURL: API_BASE_URL,
       headers: {
-        Authorization: `Bearer ${API_TOKEN}`,
+        Authorization: `Bearer ${process.env.API_TOKEN}`,
         "Content-Type": "application/json",
       },
       timeout: 10000, // 10 second timeout
@@ -2381,6 +2365,22 @@ Your goal is to help users see beyond apparent limitations and discover innovati
   // Start the server
   static factory() {
     return new ObsidianMcpServer().server;
+  }
+  importEnvs() {
+    const args = process.argv.slice(2);
+
+    // First try environment variables, then CLI args as fallback
+    const config = {
+      vaultPath: process.env.OBSIDIAN_VAULT_PATH || "./vault",
+      apiToken: process.env.OBSIDIAN_API_TOKEN || "",
+      apiPort: process.env.OBSIDIAN_API_PORT || "27123",
+      apiHost: process.env.OBSIDIAN_API_HOST || "127.0.0.1",
+      transport: process.env.OBSIDIAN_TRANSPORT || "stdio",
+      httpPort: process.env.OBSIDIAN_HTTP_PORT || "3000",
+      httpHost: process.env.OBSIDIAN_HTTP_HOST || "127.0.0.1",
+    };
+
+    return config;
   }
   async run() {
     if (TRANSPORT_MODE === "http") {
