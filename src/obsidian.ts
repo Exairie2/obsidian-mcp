@@ -2071,7 +2071,9 @@ Your goal is to help users see beyond apparent limitations and discover innovati
   private async createNote(notePath: string, content: string): Promise<void> {
     try {
       // First try using the Obsidian API
-      await this.api.post(`/vault/${encodeURIComponent(notePath)}`, { content });
+      await this.api.post(`/vault/${encodeURIComponent(notePath)}`, content, {
+        headers: { "Content-Type": "text/markdown" },
+      });
     } catch (error) {
       console.warn("API request failed, falling back to file system:", error);
 
@@ -2236,7 +2238,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       const content = sourceResponse.data.content || "";
 
       // Create destination file via API
-      await this.api.post(`/vault/${encodeURIComponent(destinationPath)}`, { content });
+      await this.api.post(`/vault/${encodeURIComponent(destinationPath)}`, content,{headers:{'Content-Type':'text/markdown'}});
 
       // Delete source file via API
       await this.api.delete(`/vault/${encodeURIComponent(sourcePath)}`);
