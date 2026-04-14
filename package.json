@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc && chmod +x build/index.js",
-    "start": "node build/index.js",
+    "start": "node build/index.js --transport http --http-port 4872 --http-host 0.0.0.0",
     "dev": "ts-node --esm src/index.ts",
     "test": "node test-mcp.js",
     "generate-dxt": "npm run build && node generate-dxt.js",

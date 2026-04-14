@@ -971,6 +971,7 @@ async function applyNoteEdits(filePath: string, edits: EditOperation[], dryRun: 
 
 // Obsidian API configuration
 const CONFIG = parseCliArgs();
+console.log(CONFIG)
 // Ensure vault path is absolute
 const VAULT_PATH = path.isAbsolute(CONFIG.vaultPath) 
   ? CONFIG.vaultPath 
