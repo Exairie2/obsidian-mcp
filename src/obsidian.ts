@@ -755,7 +755,7 @@ export class ObsidianMcpServer {
     this.api = axios.create({
       baseURL: this.API_BASE_URL,
       headers: {
-        Authorization: `Bearer ${process.env.API_TOKEN}`,
+        Authorization: `Bearer ${this.API_TOKEN}`,
         "Content-Type": "application/json",
       },
       timeout: 10000, // 10 second timeout
