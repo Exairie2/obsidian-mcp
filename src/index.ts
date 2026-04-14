@@ -6,7 +6,7 @@ console.log(process.env);
 import Express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-import { installMcpRouter } from "./mcp/mcp.js";
+import { installMcpRouter } from "./mcp/mcp";
 
 const app = Express();
 const PORT = process.env.PORT || 4189;

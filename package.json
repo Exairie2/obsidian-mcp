@@ -2,14 +2,14 @@
   "name": "@huangyihe/obsidian-mcp",
   "version": "1.7.1-beta",
   "main": "build/index.js",
-  "type": "module",
+  "type": "commonjs",
   "bin": {
     "obsidian-mcp": "./build/index.js"
   },
   "scripts": {
     "build": "tsc && chmod +x build/index.js",
     "start": "node build/index.js --transport http --http-port 4872 --http-host 0.0.0.0",
-    "dev": "ts-node --esm src/index.ts",
+    "dev": "nodemon --exec ts-node src/index.ts",
     "test": "node test-mcp.js",
     "generate-dxt": "npm run build && node generate-dxt.js",
     "prepublishOnly": "npm run build"
@@ -61,6 +61,10 @@
     "node-fetch": "^3.3.2",
     "path-browserify": "^1.0.1",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }

@@ -5,7 +5,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "module";
 
-import { ObsidianMcpServer } from "../obsidian.js";
+import { ObsidianMcpServer } from "../obsidian";
 
 const sessions = new Map();
 
@@ -15,18 +15,16 @@ export async function installMcpRouter(app) {
 
     // ── Resume existing session ──
     if (sessionId && sessions.has(sessionId)) {
-      console.log();
       const { transport } = sessions.get(sessionId);
       await transport.handleRequest(req, res, req.body);
       return;
     }
 
     // ── New session: must start with an initialize request ──
-    if (!isInitializeRequest(req.body)) {
-      res.status(400).json({ error: "Must start with an initialize request" });
-      return;
-    }
-
+    // if (!isInitializeRequest(req.body)) {
+    //   res.status(400).json({ error: "Must start with an initialize request" });
+    //   return;
+    // }
     // Generate ONE session ID used by both the transport and our store
     const newSessionId = randomUUID();
 

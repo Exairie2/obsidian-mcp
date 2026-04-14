@@ -1119,6 +1119,7 @@ export class ObsidianMcpServer {
                       enum: ["replace", "insert"],
                       description: "Edit mode: replace (default) or insert",
                       default: "replace",
+                      required: true,
                     },
                     heading: {
                       type: "string",
@@ -1473,6 +1474,8 @@ export class ObsidianMcpServer {
     // 尝试使用 Obsidian API 进行插入操作，如果失败则回退到文件系统
     let apiResults: string[] = [];
     let fallbackEdits: EditOperation[] = [];
+
+    console.log(`Editing note. Mode = ${edits.mode}`, args);
 
     for (const edit of edits) {
       const mode = edit.mode || "replace";
@@ -2053,6 +2056,8 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       // First try using the Obsidian API
       const response = await this.api.get(`/vault/${encodeURIComponent(notePath)}`);
       // API returns the content directly, not wrapped in {content: ...}
+
+      console.log(response.data);
       return response.data || "";
     } catch (error) {
       console.warn("API request failed, falling back to file system:", error);
@@ -2238,7 +2243,7 @@ Your goal is to help users see beyond apparent limitations and discover innovati
       const content = sourceResponse.data.content || "";
 
       // Create destination file via API
-      await this.api.post(`/vault/${encodeURIComponent(destinationPath)}`, content,{headers:{'Content-Type':'text/markdown'}});
+      await this.api.post(`/vault/${encodeURIComponent(destinationPath)}`, content, { headers: { "Content-Type": "text/markdown" } });
 
       // Delete source file via API
       await this.api.delete(`/vault/${encodeURIComponent(sourcePath)}`);
