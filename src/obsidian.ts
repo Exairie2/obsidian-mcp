@@ -11,7 +11,7 @@ import { URL } from "url";
 import { createTwoFilesPatch } from "diff";
 
 // Parse command line arguments for NPM usage
-function parseCliArgs() {
+function importEnvs() {
   const args = process.argv.slice(2);
 
   // First try environment variables, then CLI args as fallback
@@ -24,63 +24,6 @@ function parseCliArgs() {
     httpPort: process.env.OBSIDIAN_HTTP_PORT || "3000",
     httpHost: process.env.OBSIDIAN_HTTP_HOST || "127.0.0.1",
   };
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--vault-path" && i + 1 < args.length) {
-      config.vaultPath = args[i + 1];
-      i++;
-    } else if (arg === "--api-token" && i + 1 < args.length) {
-      config.apiToken = args[i + 1];
-      i++;
-    } else if (arg === "--api-port" && i + 1 < args.length) {
-      config.apiPort = args[i + 1];
-      i++;
-    } else if (arg === "--api-host" && i + 1 < args.length) {
-      config.apiHost = args[i + 1];
-      i++;
-    } else if (arg === "--transport" && i + 1 < args.length) {
-      config.transport = args[i + 1];
-      i++;
-    } else if (arg === "--http-port" && i + 1 < args.length) {
-      config.httpPort = args[i + 1];
-      i++;
-    } else if (arg === "--http-host" && i + 1 < args.length) {
-      config.httpHost = args[i + 1];
-      i++;
-    } else if (arg === "--help" || arg === "-h") {
-      console.log(`
-Obsidian MCP Server
-
-Usage: obsidian-mcp [options]
-
-Options:
-  --vault-path <path>   Path to your Obsidian vault
-  --api-token <token>   API token for Obsidian Local REST API plugin
-  --api-port <port>     API port (default: 27123)
-  --api-host <host>     API host (default: 127.0.0.1)
-  --transport <mode>    Transport mode: stdio or http (default: stdio)
-  --http-port <port>    HTTP server port for SSE transport (default: 3000)
-  --http-host <host>    HTTP server host for SSE transport (default: 127.0.0.1)
-  --help, -h            Show this help message
-
-Environment variables:
-  OBSIDIAN_VAULT_PATH   Path to your Obsidian vault
-  OBSIDIAN_API_TOKEN    API token for Obsidian Local REST API plugin
-  OBSIDIAN_API_PORT     API port (default: 27123)
-  OBSIDIAN_API_HOST     API host (default: 127.0.0.1)
-  OBSIDIAN_TRANSPORT    Transport mode: stdio or http (default: stdio)
-  OBSIDIAN_HTTP_PORT    HTTP server port for SSE transport (default: 3000)
-  OBSIDIAN_HTTP_HOST    HTTP server host for SSE transport (default: 127.0.0.1)
-
-Examples:
-  obsidian-mcp --vault-path "/path/to/vault" --api-token "your-token"
-  obsidian-mcp --transport http --http-port 8080 --vault-path "/path/to/vault"
-  OBSIDIAN_VAULT_PATH="/path/to/vault" OBSIDIAN_API_TOKEN="token" obsidian-mcp
-`);
-      process.exit(0);
-    }
-  }
 
   return config;
 }
@@ -917,7 +860,7 @@ async function applyNoteEdits(filePath: string, edits: EditOperation[], dryRun: 
 }
 
 // Obsidian API configuration
-const CONFIG = parseCliArgs();
+const CONFIG = importEnvs();
 console.log(CONFIG);
 // Ensure vault path is absolute
 const VAULT_PATH = path.isAbsolute(CONFIG.vaultPath) ? CONFIG.vaultPath : path.resolve(process.cwd(), CONFIG.vaultPath);
@@ -2529,5 +2472,3 @@ Your goal is to help users see beyond apparent limitations and discover innovati
     });
   }
 }
-
-

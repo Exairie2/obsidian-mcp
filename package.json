@@ -54,7 +54,7 @@
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "diff": "^8.0.2",
-    "dotenv": "^16.4.5",
+    "dotenv": "^17.4.2",
     "eventsource": "^4.0.0",
     "express": "^5.2.1",
     "json": "^11.0.0",
