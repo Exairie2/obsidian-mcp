@@ -2530,12 +2530,4 @@ Your goal is to help users see beyond apparent limitations and discover innovati
   }
 }
 
-// Validate transport mode
-if (TRANSPORT_MODE !== "stdio" && TRANSPORT_MODE !== "http") {
-  console.error(`[ERROR] Invalid transport mode: ${TRANSPORT_MODE}. Must be 'stdio' or 'http'`);
-  process.exit(1);
-}
 
-// Create and run the server
-const server = new ObsidianMcpServer();
-server.run().catch(console.error);
