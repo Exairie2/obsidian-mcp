@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
+import { CallToolRequestSchema, ErrorCode, ListResourcesRequestSchema, ListToolsRequestSchema, McpError, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
 import * as path from "path";
 import * as fs from "fs";
@@ -762,10 +761,12 @@ export class ObsidianMcpServer {
       timeout: 10000, // 10 second timeout
     });
 
-    // Register tools
-    this.registerTools();
+    // Set up request handlers
+    this.setupResourceHandlers();
+    this.setupToolHandlers();
 
     // Error handling
+    this.server.onerror = (error) => console.error("[MCP Error]", error);
     // process.on('SIGINT', async () => {
     //   await this.server.close();
     //   process.exit(0);
@@ -912,199 +913,382 @@ export class ObsidianMcpServer {
 
     return `File ${filePath} updated successfully`;
   }
-  
-  private registerTools() {
-    // list_notes tool
-    this.server.registerTool(
-      "list_notes",
-      {
-        title: "List notes in the Obsidian vault",
-        description: "List notes in the Obsidian vault. By default lists all notes recursively.",
-        inputSchema: z.object({
-          folder: z.string().describe("Folder path within the vault (optional). If not provided, lists from vault root.").optional(),
-          recursive: z.boolean().describe("Whether to list files recursively in subdirectories (default: true)").default(true),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleListNotes(args);
-      }) as any
-    );
 
-    // read_note tool
-    this.server.registerTool(
-      "read_note",
-      {
-        title: "Read a note",
-        description: "Read the content of a note in the Obsidian vault",
-        inputSchema: z.object({
-          path: z.string().describe("Path to the note within the vault"),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleReadNote(args);
-      }) as any
-    );
+  private setupResourceHandlers() {
+    // List available resources
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      try {
+        // Get list of files in the vault
+        const files = await this.listVaultFiles();
 
-    // create_note tool
-    this.server.registerTool(
-      "create_note",
-      {
-        title: "Create a new note",
-        description: "Create a new note in the Obsidian vault",
-        inputSchema: z.object({
-          path: z.string().describe("Path where the note should be created"),
-          content: z.string().describe("Content of the note"),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleCreateNote(args);
-      }) as any
-    );
+        // Map files to resources
+        const resources = files.map((file) => ({
+          uri: `obsidian://${encodeURIComponent(file)}`,
+          name: path.basename(file),
+          mimeType: "text/markdown",
+          description: `Markdown note: ${file}`,
+        }));
 
-    // delete_note tool
-    this.server.registerTool(
-      "delete_note",
-      {
-        title: "Delete a note",
-        description: "Delete a note from the Obsidian vault",
-        inputSchema: z.object({
-          path: z.string().describe("Path to the note within the vault"),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleDeleteNote(args);
-      }) as any
-    );
+        return { resources };
+      } catch (error) {
+        console.error("Error listing resources:", error);
+        throw new McpError(ErrorCode.InternalError, `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
 
-    // search_vault tool
-    this.server.registerTool(
-      "search_vault",
-      {
-        title: "Search vault content",
-        description: "Search for content in the Obsidian vault",
-        inputSchema: z.object({
-          query: z.string().describe("Search query"),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleSearchVault(args);
-      }) as any
-    );
+    // Read resource content
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      try {
+        const match = request.params.uri.match(/^obsidian:\/\/(.+)$/);
+        if (!match) {
+          throw new McpError(ErrorCode.InvalidRequest, `Invalid URI format: ${request.params.uri}`);
+        }
 
-    // move_note tool
-    this.server.registerTool(
-      "move_note",
-      {
-        title: "Move or rename a note",
-        description: "Move or rename a note to a new location in the Obsidian vault",
-        inputSchema: z.object({
-          sourcePath: z.string().describe("Current path to the note within the vault"),
-          destinationPath: z.string().describe("New path where the note should be moved"),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleMoveNote(args);
-      }) as any
-    );
+        const filePath = decodeURIComponent(match[1]);
+        const content = await this.readNote(filePath);
 
-    // manage_folder tool
-    this.server.registerTool(
-      "manage_folder",
-      {
-        title: "Manage folders",
-        description: "Create, rename, move, or delete a folder in the Obsidian vault",
-        inputSchema: z.object({
-          operation: z.enum(["create", "rename", "move", "delete"]).describe("The operation to perform: create, rename, move, or delete"),
-          path: z.string().describe("Path to the folder within the vault"),
-          newPath: z.string().describe("New path for the folder (required for rename and move operations)").optional(),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleManageFolder(args);
-      }) as any
-    );
-
-    // update_note tool
-    this.server.registerTool(
-      "update_note",
-      {
-        title: "Update note content",
-        description: "Update content in an existing note using text replacements or precise insertions",
-        inputSchema: z.object({
-          path: z.string().describe("Path to the note within the vault"),
-          edits: z.array(z.object({
-            oldText: z.string().describe("Text to search for and replace (for replace mode)").optional(),
-            newText: z.string().describe("Text to replace with (for replace mode)").optional(),
-            mode: z.enum(["replace", "insert"]).describe("Edit mode: replace (default) or insert").default("replace"),
-            heading: z.string().describe("Target heading for insert mode").optional(),
-            content: z.string().describe("Content to insert (for insert mode)").optional(),
-            position: z.enum(["before", "after", "append", "prepend"]).describe("Where to insert relative to heading: before (above heading), after (below heading), append (end of section), prepend (start of section)").default("after"),
-            level: z.number().int().min(1).max(6).describe("Heading level (1-6) for more precise targeting").optional(),
-            blockId: z.string().describe("Block ID for block-based insertion (^block-id)").optional(),
-          })).describe("Array of edit operations to apply"),
-          dryRun: z.boolean().describe("Preview changes without applying them").default(false),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleUpdateNote(args);
-      }) as any
-    );
-
-    // read_multiple_notes tool
-    this.server.registerTool(
-      "read_multiple_notes",
-      {
-        title: "Read multiple notes",
-        description: "Read content from multiple notes simultaneously",
-        inputSchema: z.object({
-          paths: z.array(z.string()).describe("Array of note paths to read"),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleReadMultipleNotes(args);
-      }) as any
-    );
-
-    // auto_backlink_vault tool
-    this.server.registerTool(
-      "auto_backlink_vault",
-      {
-        title: "Auto backlink vault",
-        description: "Automatically add backlinks throughout the entire vault by detecting note names in content and converting them to wikilinks",
-        inputSchema: z.object({
-          dryRun: z.boolean().describe("Preview changes without applying them (default: true)").default(true),
-          excludePatterns: z.array(z.string()).describe('Array of glob patterns to exclude from processing (e.g., ["template/*", "archive/*"])').default([]),
-          minLength: z.number().describe("Minimum note name length to consider for linking (default: 3)").default(3),
-          caseSensitive: z.boolean().describe("Whether matching should be case sensitive (default: false)").default(false),
-          wholeWords: z.boolean().describe("Whether to match only whole words (default: true)").default(true),
-          batchSize: z.number().describe("Number of notes to process in each batch (default: 50)").default(50),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleAutoBacklinkVault(args);
-      }) as any
-    );
-
-    // notes_insight tool
-    this.server.registerTool(
-      "notes_insight",
-      {
-        title: "Generate insights about a topic",
-        description: "Generate insights about a topic using TRILEMMA-PRINCIPLES framework with AI-powered summarization",
-        inputSchema: z.object({
-          topic: z.string().describe("Topic keyword or phrase to analyze"),
-          maxNotes: z.number().describe("Maximum number of notes to analyze (default: 5)").default(5),
-          maxContextLength: z.number().describe("Maximum context length in characters (default: 50000)").default(50000),
-          enableSummary: z.boolean().describe("Whether to enable AI summarization for long notes (default: true)").default(true),
-        }),
-      },
-      (async (args: any) => {
-        return await this.handleNotesInsight(args);
-      }) as any
-    );
+        return {
+          contents: [
+            {
+              uri: request.params.uri,
+              mimeType: "text/markdown",
+              text: content,
+            },
+          ],
+        };
+      } catch (error) {
+        console.error("Error reading resource:", error);
+        throw new McpError(ErrorCode.InternalError, `Failed to read resource: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
   }
 
+  private setupToolHandlers() {
+    // List available tools
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: "list_notes",
+          description: "List notes in the Obsidian vault. By default lists all notes recursively.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              folder: {
+                type: "string",
+                description: "Folder path within the vault (optional). If not provided, lists from vault root.",
+              },
+              recursive: {
+                type: "boolean",
+                description: "Whether to list files recursively in subdirectories (default: true)",
+                default: true,
+              },
+            },
+            required: [],
+          },
+        },
+        {
+          name: "delete_note",
+          description: "Delete a note from the Obsidian vault",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Path to the note within the vault",
+              },
+            },
+            required: ["path"],
+          },
+        },
+        {
+          name: "read_note",
+          description: "Read the content of a note in the Obsidian vault",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Path to the note within the vault",
+              },
+            },
+            required: ["path"],
+          },
+        },
+        {
+          name: "create_note",
+          description: "Create a new note in the Obsidian vault",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Path where the note should be created",
+              },
+              content: {
+                type: "string",
+                description: "Content of the note",
+              },
+            },
+            required: ["path", "content"],
+          },
+        },
+        {
+          name: "search_vault",
+          description: "Search for content in the Obsidian vault",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "Search query",
+              },
+            },
+            required: ["query"],
+          },
+        },
+        {
+          name: "move_note",
+          description: "Move or rename a note to a new location in the Obsidian vault",
+          inputSchema: {
+            type: "object",
+            properties: {
+              sourcePath: {
+                type: "string",
+                description: "Current path to the note within the vault",
+              },
+              destinationPath: {
+                type: "string",
+                description: "New path where the note should be moved",
+              },
+            },
+            required: ["sourcePath", "destinationPath"],
+          },
+        },
+        {
+          name: "manage_folder",
+          description: "Create, rename, move, or delete a folder in the Obsidian vault",
+          inputSchema: {
+            type: "object",
+            properties: {
+              operation: {
+                type: "string",
+                description: "The operation to perform: create, rename, move, or delete",
+                enum: ["create", "rename", "move", "delete"],
+              },
+              path: {
+                type: "string",
+                description: "Path to the folder within the vault",
+              },
+              newPath: {
+                type: "string",
+                description: "New path for the folder (required for rename and move operations)",
+              },
+            },
+            required: ["operation", "path"],
+          },
+        },
+        {
+          name: "update_note",
+          description: "Update content in an existing note using text replacements or precise insertions",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Path to the note within the vault",
+              },
+              edits: {
+                type: "array",
+                description: "Array of edit operations to apply",
+                items: {
+                  type: "object",
+                  properties: {
+                    // 替换模式 (向后兼容)
+                    oldText: {
+                      type: "string",
+                      description: "Text to search for and replace (for replace mode)",
+                    },
+                    newText: {
+                      type: "string",
+                      description: "Text to replace with (for replace mode)",
+                    },
 
+                    // 插入模式
+                    mode: {
+                      type: "string",
+                      enum: ["replace", "insert"],
+                      description: "Edit mode: replace (default) or insert",
+                      default: "replace",
+                      required: true,
+                    },
+                    heading: {
+                      type: "string",
+                      description: "Target heading for insert mode",
+                    },
+                    content: {
+                      type: "string",
+                      description: "Content to insert (for insert mode)",
+                    },
+                    position: {
+                      type: "string",
+                      enum: ["before", "after", "append", "prepend"],
+                      description: "Where to insert relative to heading: before (above heading), after (below heading), append (end of section), prepend (start of section)",
+                      default: "after",
+                    },
+                    level: {
+                      type: "number",
+                      minimum: 1,
+                      maximum: 6,
+                      description: "Heading level (1-6) for more precise targeting",
+                    },
+                    blockId: {
+                      type: "string",
+                      description: "Block ID for block-based insertion (^block-id)",
+                    },
+                  },
+                  anyOf: [
+                    { required: ["oldText", "newText"] }, // 替换模式
+                    { required: ["mode", "heading", "content"] }, // 标题插入
+                    { required: ["mode", "blockId", "content"] }, // 块插入
+                  ],
+                },
+              },
+              dryRun: {
+                type: "boolean",
+                description: "Preview changes without applying them",
+                default: false,
+              },
+            },
+            required: ["path", "edits"],
+          },
+        },
+        {
+          name: "read_multiple_notes",
+          description: "Read content from multiple notes simultaneously",
+          inputSchema: {
+            type: "object",
+            properties: {
+              paths: {
+                type: "array",
+                description: "Array of note paths to read",
+                items: {
+                  type: "string",
+                },
+              },
+            },
+            required: ["paths"],
+          },
+        },
+        {
+          name: "auto_backlink_vault",
+          description: "Automatically add backlinks throughout the entire vault by detecting note names in content and converting them to wikilinks",
+          inputSchema: {
+            type: "object",
+            properties: {
+              dryRun: {
+                type: "boolean",
+                description: "Preview changes without applying them (default: true)",
+                default: true,
+              },
+              excludePatterns: {
+                type: "array",
+                description: 'Array of glob patterns to exclude from processing (e.g., ["template/*", "archive/*"])',
+                items: {
+                  type: "string",
+                },
+                default: [],
+              },
+              minLength: {
+                type: "number",
+                description: "Minimum note name length to consider for linking (default: 3)",
+                default: 3,
+              },
+              caseSensitive: {
+                type: "boolean",
+                description: "Whether matching should be case sensitive (default: false)",
+                default: false,
+              },
+              wholeWords: {
+                type: "boolean",
+                description: "Whether to match only whole words (default: true)",
+                default: true,
+              },
+              batchSize: {
+                type: "number",
+                description: "Number of notes to process in each batch (default: 50)",
+                default: 50,
+              },
+            },
+            required: [],
+          },
+        },
+        {
+          name: "notes_insight",
+          description: "Generate insights about a topic using TRILEMMA-PRINCIPLES framework with AI-powered summarization",
+          inputSchema: {
+            type: "object",
+            properties: {
+              topic: {
+                type: "string",
+                description: "Topic keyword or phrase to analyze",
+              },
+              maxNotes: {
+                type: "number",
+                description: "Maximum number of notes to analyze (default: 5)",
+                default: 5,
+              },
+              maxContextLength: {
+                type: "number",
+                description: "Maximum context length in characters (default: 50000)",
+                default: 50000,
+              },
+              enableSummary: {
+                type: "boolean",
+                description: "Whether to enable AI summarization for long notes (default: true)",
+                default: true,
+              },
+            },
+            required: ["topic"],
+          },
+        },
+      ],
+    }));
+
+    // Handle tool calls
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      try {
+        switch (request.params.name) {
+          case "list_notes":
+            return await this.handleListNotes(request.params.arguments);
+          case "read_note":
+            return await this.handleReadNote(request.params.arguments);
+          case "create_note":
+            return await this.handleCreateNote(request.params.arguments);
+          case "search_vault":
+            return await this.handleSearchVault(request.params.arguments);
+          case "delete_note":
+            return await this.handleDeleteNote(request.params.arguments);
+          case "move_note":
+            return await this.handleMoveNote(request.params.arguments);
+          case "manage_folder":
+            return await this.handleManageFolder(request.params.arguments);
+          case "update_note":
+            return await this.handleUpdateNote(request.params.arguments);
+          case "read_multiple_notes":
+            return await this.handleReadMultipleNotes(request.params.arguments);
+          case "auto_backlink_vault":
+            return await this.handleAutoBacklinkVault(request.params.arguments);
+          case "notes_insight":
+            return await this.handleNotesInsight(request.params.arguments);
+          default:
+            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
+        }
+      } catch (error) {
+        console.error(`Error executing tool ${request.params.name}:`, error);
+        throw new McpError(ErrorCode.InternalError, `${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  }
 
   // Tool handler implementations
   private async handleListNotes(args: any) {
