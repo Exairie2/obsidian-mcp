@@ -12,10 +12,11 @@ const sessions = new Map();
 export async function installMcpRouter(app) {
   app.post("/mcp", async (req, res) => {
     const sessionId = req.headers["mcp-session-id"];
-
+    console.log(`Processing Session`, sessionId);
     // ── Resume existing session ──
     if (sessionId && sessions.has(sessionId)) {
       const { transport } = sessions.get(sessionId);
+      console.log(`Resuming`, sessionId);
       await transport.handleRequest(req, res, req.body);
       return;
     }
@@ -26,9 +27,8 @@ export async function installMcpRouter(app) {
     //   return;
     // }
     // Generate ONE session ID used by both the transport and our store
-    const newSessionId = randomUUID();
-
-    console.log(`Session ID ${newSessionId}`);
+    console.log(`Recreating`, sessionId);
+    const newSessionId = req.headers["mcp-session-id"] || randomUUID();
 
     const transport = new StreamableHTTPServerTransport({
       // Must return the same ID we store — this is what gets sent to the client
