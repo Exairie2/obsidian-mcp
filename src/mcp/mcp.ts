@@ -22,10 +22,10 @@ export async function installMcpRouter(app) {
     }
 
     // ── New session: must start with an initialize request ──
-    // if (!isInitializeRequest(req.body)) {
-    //   res.status(400).json({ error: "Must start with an initialize request" });
-    //   return;
-    // }
+    if (!isInitializeRequest(req.body)) {
+      res.status(400).json({ error: "Must start with an initialize request" });
+      return;
+    }
     // Generate ONE session ID used by both the transport and our store
     console.log(`Recreating`, sessionId);
     const newSessionId = req.headers["mcp-session-id"] || randomUUID();
